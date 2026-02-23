@@ -18,6 +18,7 @@ type Store struct {
 	clients     map[string]*api.ClientRecord
 	tasks       map[string][]api.Task     // clientID -> pending tasks
 	taskResults map[string]api.TaskResult // taskID -> result
+	notify      map[string]chan struct{}  // clientID -> long-poll wake-up channel
 }
 
 func New(filePath string) (*Store, error) {
@@ -26,6 +27,7 @@ func New(filePath string) (*Store, error) {
 		clients:     make(map[string]*api.ClientRecord),
 		tasks:       make(map[string][]api.Task),
 		taskResults: make(map[string]api.TaskResult),
+		notify:      make(map[string]chan struct{}),
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -53,6 +55,23 @@ func (s *Store) Upsert(req api.HeartbeatRequest) {
 	_ = s.save()
 }
 
+// Subscribe returns a channel that is closed when a new task is available for
+// the client. Any previously existing channel for the client is replaced.
+func (s *Store) Subscribe(clientID string) <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := make(chan struct{}, 1)
+	s.notify[clientID] = ch
+	return ch
+}
+
+// Unsubscribe removes the long-poll channel for the client.
+func (s *Store) Unsubscribe(clientID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.notify, clientID)
+}
+
 // PopTasks returns and removes all pending tasks for the given client
 func (s *Store) PopTasks(clientID string) []api.Task {
 	s.mu.Lock()
@@ -62,11 +81,19 @@ func (s *Store) PopTasks(clientID string) []api.Task {
 	return tasks
 }
 
-// AddTask enqueues a task for the given client
+// AddTask enqueues a task for the given client and wakes up any active long-poll
 func (s *Store) AddTask(clientID string, task api.Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[clientID] = append(s.tasks[clientID], task)
+
+	// Signal the waiting long-poll connection, if any
+	if ch, ok := s.notify[clientID]; ok {
+		select {
+		case ch <- struct{}{}:
+		default: // already signalled, don't block
+		}
+	}
 }
 
 // SaveTaskResult persists the result of an executed task

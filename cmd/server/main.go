@@ -17,6 +17,8 @@ type server struct {
 	apiKey string
 }
 
+const pollTimeout = 30 * time.Second
+
 func main() {
 	apiKey := getEnv("RMM_API_KEY", "changeme")
 	addr := getEnv("RMM_ADDR", ":8080")
@@ -37,6 +39,7 @@ func main() {
 	mux.HandleFunc("GET /clients", srv.auth(srv.handleListClients))
 	mux.HandleFunc("POST /clients/{id}/task", srv.auth(srv.handleEnqueueTask))
 	mux.HandleFunc("GET /tasks/{id}/result", srv.auth(srv.handleGetTaskResult))
+	mux.HandleFunc("GET /poll", srv.auth(srv.handlePoll))
 
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
@@ -103,7 +106,7 @@ func (s *server) handleListClients(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleEnqueueTask handles POST /clients/{id}/task
-// Adds a task to the client's queue to be picked up on the next heartbeat.
+// Adds a task to the client's queue and wakes up any active long-poll connection.
 func (s *server) handleEnqueueTask(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PathValue("id")
 	if _, ok := s.store.Get(clientID); !ok {
@@ -138,6 +141,46 @@ func (s *server) handleGetTaskResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// handlePoll handles GET /poll
+// Long-polling endpoint: the client blocks here until tasks are available or
+// the timeout expires. On timeout, responds with an empty task list so the
+// client immediately reconnects. The client must send its client_id as a query
+// parameter: GET /poll?client_id=<id>
+func (s *server) handlePoll(w http.ResponseWriter, r *http.Request) {
+	clientID := r.URL.Query().Get("client_id")
+	if clientID == "" {
+		http.Error(w, "client_id query parameter missing", http.StatusBadRequest)
+		return
+	}
+
+	// If tasks are already queued, return them immediately without blocking
+	if tasks := s.store.PopTasks(clientID); len(tasks) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks})
+		log.Printf("[%s] Poll: %d task(s) dispatched immediately", clientID, len(tasks))
+		return
+	}
+
+	// No tasks yet – subscribe and wait
+	notify := s.store.Subscribe(clientID)
+	defer s.store.Unsubscribe(clientID)
+
+	select {
+	case <-notify:
+		tasks := s.store.PopTasks(clientID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks})
+		log.Printf("[%s] Poll: %d task(s) dispatched after wake-up", clientID, len(tasks))
+	case <-time.After(pollTimeout):
+		// Return an empty response so the client reconnects
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(api.HeartbeatResponse{})
+	case <-r.Context().Done():
+		// Client disconnected
+		log.Printf("[%s] Poll: client disconnected", clientID)
+	}
 }
 
 func getEnv(key, fallback string) string {

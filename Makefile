@@ -12,7 +12,7 @@ clean:
 	rm -rf bin/
 
 run-server:
-	RMM_API_KEY=geheimkey RMM_ADDR=:8080 go run ./cmd/server
+	RMM_API_KEY=secretkey RMM_ADDR=:8080 go run ./cmd/server
 
 run-client:
-	RMM_API_KEY=geheimkey RMM_SERVER=http://localhost:8080 RMM_INTERVAL=10s go run ./cmd/client
+	RMM_API_KEY=secretkey RMM_SERVER=http://localhost:8080 RMM_HEARTBEAT_INTERVAL=10s go run ./cmd/client

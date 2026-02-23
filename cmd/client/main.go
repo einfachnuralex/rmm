@@ -19,50 +19,68 @@ import (
 func main() {
 	serverURL := getEnv("RMM_SERVER", "http://localhost:8080")
 	apiKey := getEnv("RMM_API_KEY", "changeme")
-	interval := getDuration("RMM_INTERVAL", 30*time.Second)
+	heartbeatInterval := getDuration("RMM_HEARTBEAT_INTERVAL", 30*time.Second)
 
 	hostname, _ := os.Hostname()
 	clientID := getEnv("RMM_CLIENT_ID", hostname)
 
-	log.Printf("RMM Client starting | ID: %s | Server: %s | Interval: %s", clientID, serverURL, interval)
+	log.Printf("RMM Client starting | ID: %s | Server: %s | Heartbeat: %s", clientID, serverURL, heartbeatInterval)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Use a shared HTTP client with a long timeout to support long polling.
+	// The poll request can block for up to 30s on the server side.
+	httpClient := &http.Client{Timeout: 60 * time.Second}
 	startTime := time.Now()
 
-	for {
-		uptime := time.Since(startTime).Seconds()
+	// Goroutine 1: periodic heartbeat for status reporting
+	go runHeartbeatLoop(httpClient, serverURL, apiKey, clientID, hostname, heartbeatInterval, startTime)
 
+	// Goroutine 2: long-poll loop for immediate task dispatch
+	runPollLoop(httpClient, serverURL, apiKey, clientID)
+}
+
+// runHeartbeatLoop periodically reports client status to the server.
+func runHeartbeatLoop(client *http.Client, serverURL, apiKey, clientID, hostname string, interval time.Duration, startTime time.Time) {
+	for {
 		req := api.HeartbeatRequest{
 			ClientID: clientID,
 			Hostname: hostname,
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
-			Uptime:   uptime,
+			Uptime:   time.Since(startTime).Seconds(),
 		}
-
-		resp, err := sendHeartbeat(client, serverURL, apiKey, req)
-		if err != nil {
+		if err := sendHeartbeat(client, serverURL, apiKey, req); err != nil {
 			log.Printf("Heartbeat failed: %v", err)
-		} else {
-			for _, task := range resp.Tasks {
-				go handleTask(client, serverURL, apiKey, clientID, task)
-			}
 		}
-
 		time.Sleep(interval)
 	}
 }
 
-func sendHeartbeat(client *http.Client, serverURL, apiKey string, req api.HeartbeatRequest) (*api.HeartbeatResponse, error) {
-	body, _ := json.Marshal(req)
-	httpReq, err := http.NewRequest("POST", serverURL+"/heartbeat", bytes.NewReader(body))
+// runPollLoop blocks on GET /poll and dispatches received tasks.
+// It reconnects immediately after each response or error.
+func runPollLoop(client *http.Client, serverURL, apiKey, clientID string) {
+	for {
+		resp, err := poll(client, serverURL, apiKey, clientID)
+		if err != nil {
+			log.Printf("Poll failed: %v – retrying in 5s", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		for _, task := range resp.Tasks {
+			go handleTask(client, serverURL, apiKey, clientID, task)
+		}
+		// No sleep here: reconnect immediately to stay ready for the next task
+	}
+}
+
+// poll performs a single long-poll request and returns the server response.
+func poll(client *http.Client, serverURL, apiKey, clientID string) (*api.HeartbeatResponse, error) {
+	req, err := http.NewRequest("GET", serverURL+"/poll?client_id="+clientID, nil)
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-API-Key", apiKey)
+	req.Header.Set("X-API-Key", apiKey)
 
-	httpResp, err := client.Do(httpReq)
+	httpResp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +95,29 @@ func sendHeartbeat(client *http.Client, serverURL, apiKey string, req api.Heartb
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// sendHeartbeat sends a heartbeat to the server (status only, no tasks expected).
+func sendHeartbeat(client *http.Client, serverURL, apiKey string, req api.HeartbeatRequest) error {
+	body, _ := json.Marshal(req)
+	httpReq, err := http.NewRequest("POST", serverURL+"/heartbeat", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-API-Key", apiKey)
+
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server responded with %d", httpResp.StatusCode)
+	}
+	log.Printf("Heartbeat sent (uptime: %.0fs)", req.Uptime)
+	return nil
 }
 
 func handleTask(client *http.Client, serverURL, apiKey, clientID string, task api.Task) {
