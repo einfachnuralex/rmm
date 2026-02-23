@@ -140,9 +140,12 @@ func (s *Store) Get(clientID string) (*api.ClientRecord, bool) {
 }
 
 func (s *Store) load() error {
+	if s.filePath == "" {
+		return nil // in-memory mode: nothing to load
+	}
 	data, err := os.ReadFile(s.filePath)
 	if os.IsNotExist(err) {
-		return nil // empty file is fine
+		return nil // file not yet created, start fresh
 	}
 	if err != nil {
 		return err
@@ -151,6 +154,9 @@ func (s *Store) load() error {
 }
 
 func (s *Store) save() error {
+	if s.filePath == "" {
+		return nil // in-memory mode: nothing to persist
+	}
 	data, err := json.MarshalIndent(s.clients, "", "  ")
 	if err != nil {
 		return err

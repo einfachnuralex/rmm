@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/einfachnuralex/rmm/internal/api"
+	"github.com/einfachnuralex/rmm/internal/utils"
 )
 
 func main() {
@@ -29,24 +30,27 @@ func main() {
 	// Use a shared HTTP client with a long timeout to support long polling.
 	// The poll request can block for up to 30s on the server side.
 	httpClient := &http.Client{Timeout: 60 * time.Second}
-	startTime := time.Now()
 
 	// Goroutine 1: periodic heartbeat for status reporting
-	go runHeartbeatLoop(httpClient, serverURL, apiKey, clientID, hostname, heartbeatInterval, startTime)
+	go runHeartbeatLoop(httpClient, serverURL, apiKey, clientID, hostname, heartbeatInterval)
 
 	// Goroutine 2: long-poll loop for immediate task dispatch
 	runPollLoop(httpClient, serverURL, apiKey, clientID)
 }
 
 // runHeartbeatLoop periodically reports client status to the server.
-func runHeartbeatLoop(client *http.Client, serverURL, apiKey, clientID, hostname string, interval time.Duration, startTime time.Time) {
+func runHeartbeatLoop(client *http.Client, serverURL, apiKey, clientID, hostname string, interval time.Duration) {
 	for {
+		uptime, err := utils.HostUptime()
+		if err != nil {
+			log.Printf("Failed to read host uptime: %v", err)
+		}
 		req := api.HeartbeatRequest{
 			ClientID: clientID,
 			Hostname: hostname,
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
-			Uptime:   time.Since(startTime).Seconds(),
+			Uptime:   uptime,
 		}
 		if err := sendHeartbeat(client, serverURL, apiKey, req); err != nil {
 			log.Printf("Heartbeat failed: %v", err)

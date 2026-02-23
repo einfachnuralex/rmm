@@ -66,11 +66,11 @@ RMM_DATA_FILE=clients.json \
 ./bin/rmm-server
 ```
 
-| Variable        | Default        | Description                        |
-|-----------------|----------------|------------------------------------|
-| `RMM_API_KEY`   | `changeme`     | Shared API key                     |
-| `RMM_ADDR`      | `:8080`        | Server bind address                |
-| `RMM_DATA_FILE` | `clients.json` | Path to the JSON persistence file  |
+| Variable        | Default    | Description                                                      |
+|-----------------|------------|------------------------------------------------------------------|
+| `RMM_API_KEY`   | `changeme` | Shared API key                                                   |
+| `RMM_ADDR`      | `:8080`    | Server bind address                                              |
+| `RMM_DATA_FILE` | *(unset)*  | Path to JSON file for persistence. If unset, runs in-memory only |
 
 ### Client (on each PC)
 

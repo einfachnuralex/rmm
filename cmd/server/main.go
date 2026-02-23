@@ -22,7 +22,7 @@ const pollTimeout = 30 * time.Second
 func main() {
 	apiKey := getEnv("RMM_API_KEY", "changeme")
 	addr := getEnv("RMM_ADDR", ":8080")
-	dataFile := getEnv("RMM_DATA_FILE", "clients.json")
+	dataFile := os.Getenv("RMM_DATA_FILE") // empty = in-memory mode
 
 	s, err := store.New(dataFile)
 	if err != nil {
@@ -31,7 +31,11 @@ func main() {
 
 	srv := &server{store: s, apiKey: apiKey}
 
-	log.Printf("RMM Server starting on %s (data file: %s)", addr, dataFile)
+	if dataFile == "" {
+		log.Printf("RMM Server starting on %s (storage: in-memory)", addr)
+	} else {
+		log.Printf("RMM Server starting on %s (storage: %s)", addr, dataFile)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /heartbeat", srv.auth(srv.handleHeartbeat))
