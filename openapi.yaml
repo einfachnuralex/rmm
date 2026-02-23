@@ -100,6 +100,7 @@ components:
         - task_id
         - client_id
         - output
+        - exit_code
       properties:
         task_id:
           type: string
@@ -113,9 +114,13 @@ components:
           type: string
           description: Combined stdout/stderr output of the executed task
           example: " 10:00:01 up 1 day,  2:30,  1 user,  load average: 0.10, 0.08, 0.05\n"
+        exit_code:
+          type: integer
+          description: Exit code of the process. 0 indicates success, any other value indicates failure.
+          example: 0
         error:
           type: string
-          description: Error message if the task failed. Omitted on success.
+          description: Error message if the task could not be executed at all (e.g. binary not found). Omitted on success.
           example: "execution failed: exit status 1"
 
     ClientRecord:
@@ -204,7 +209,8 @@ paths:
       summary: Submit task result
       description: |
         Called by the client after executing a task received in a heartbeat response.
-        The server logs the result. Results are not currently persisted to disk.
+        The server logs and persists the result, which can then be retrieved via
+        `GET /tasks/{id}/result`.
       operationId: submitTaskResult
       requestBody:
         required: true
@@ -219,13 +225,14 @@ paths:
                   task_id: task-1718000000000000000
                   client_id: workstation-01
                   output: " 10:00:01 up 1 day,  2:30,  1 user\n"
+                  exit_code: 0
               failure:
                 summary: Failed task result
                 value:
                   task_id: task-1718000000000000001
                   client_id: workstation-01
-                  output: ""
-                  error: "execution failed: exit status 127"
+                  output: "sh: unknown_cmd: command not found\n"
+                  exit_code: 127
       responses:
         '204':
           description: Result received successfully
@@ -267,6 +274,51 @@ paths:
                   online: false
         '401':
           description: Missing or invalid API key
+
+  /tasks/{id}/result:
+    get:
+      summary: Retrieve a task result
+      description: |
+        Returns the result of a completed task by its ID.
+        Results are held in memory and available as soon as the client submits them
+        via `POST /task-result`. Returns 404 if the task has not yet completed
+        or the ID is unknown.
+      operationId: getTaskResult
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The task ID to retrieve the result for
+          schema:
+            type: string
+          example: task-1718000000000000000
+      responses:
+        '200':
+          description: Task result found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResult'
+              examples:
+                success:
+                  summary: Successful task result
+                  value:
+                    task_id: task-1718000000000000000
+                    client_id: workstation-01
+                    output: " 10:00:01 up 1 day,  2:30,  1 user\n"
+                    exit_code: 0
+                failure:
+                  summary: Failed task result
+                  value:
+                    task_id: task-1718000000000000001
+                    client_id: workstation-01
+                    output: "sh: unknown_cmd: command not found\n"
+                    exit_code: 127
+                    error: ""
+        '401':
+          description: Missing or invalid API key
+        '404':
+          description: No result found for this task ID (task unknown or not yet completed)
 
   /clients/{id}/task:
     post:
@@ -316,11 +368,18 @@ paths:
       responses:
         '202':
           description: Task accepted and enqueued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    description: The ID of the enqueued task, use this to retrieve the result later
+                    example: task-1718000000000000000
         '400':
           description: Invalid request body
         '401':
           description: Missing or invalid API key
         '404':
           description: Client not found
-
-Lassen Sie uns gemeinsam programmieren - Claude

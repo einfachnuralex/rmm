@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -12,17 +13,19 @@ import (
 const offlineThreshold = 2 * time.Minute
 
 type Store struct {
-	mu       sync.RWMutex
-	filePath string
-	clients  map[string]*api.ClientRecord
-	tasks    map[string][]api.Task // clientID -> pending tasks
+	mu          sync.RWMutex
+	filePath    string
+	clients     map[string]*api.ClientRecord
+	tasks       map[string][]api.Task     // clientID -> pending tasks
+	taskResults map[string]api.TaskResult // taskID -> result
 }
 
 func New(filePath string) (*Store, error) {
 	s := &Store{
-		filePath: filePath,
-		clients:  make(map[string]*api.ClientRecord),
-		tasks:    make(map[string][]api.Task),
+		filePath:    filePath,
+		clients:     make(map[string]*api.ClientRecord),
+		tasks:       make(map[string][]api.Task),
+		taskResults: make(map[string]api.TaskResult),
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -64,6 +67,24 @@ func (s *Store) AddTask(clientID string, task api.Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[clientID] = append(s.tasks[clientID], task)
+}
+
+// SaveTaskResult persists the result of an executed task
+func (s *Store) SaveTaskResult(result api.TaskResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.taskResults[result.TaskID] = result
+}
+
+// GetTaskResult retrieves a task result by task ID
+func (s *Store) GetTaskResult(taskID string) (api.TaskResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result, ok := s.taskResults[taskID]
+	if !ok {
+		return api.TaskResult{}, fmt.Errorf("task result not found: %s", taskID)
+	}
+	return result, nil
 }
 
 // All returns all known clients with an up-to-date online status

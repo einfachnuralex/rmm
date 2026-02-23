@@ -82,17 +82,14 @@ curl -H "X-API-Key: geheimkey" http://localhost:8080/clients
 Aufgabe an einen Client senden. Wird beim nächsten Heartbeat abgeholt.
 
 ```bash
-# Befehl ausführen
-curl -X POST -H "X-API-Key: geheimkey" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"exec","payload":{"command":"hostname"}}' \
-  http://localhost:8080/clients/mein-pc/task
+# 1. Task senden → task_id merken
+TASK_ID=$(curl -s -X POST -H "X-API-Key: geheimkey" \
+  -d '{"type":"exec","payload":{"command":"uptime"}}' \
+  http://localhost:8080/clients/workstation-01/task | jq -r .task_id)
 
-# Resource abfragen
-curl -X POST -H "X-API-Key: geheimkey" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"resource","payload":{"name":"os"}}' \
-  http://localhost:8080/clients/mein-pc/task
+# 2. Ergebnis abholen (sobald der Client den nächsten Heartbeat gemacht hat)
+curl -H "X-API-Key: geheimkey" \
+  http://localhost:8080/tasks/$TASK_ID/result
 ```
 
 ## Aufgaben-Typen

@@ -28,6 +28,7 @@ type TaskResult struct {
 	TaskID   string `json:"task_id"`
 	ClientID string `json:"client_id"`
 	Output   string `json:"output"`
+	ExitCode int    `json:"exit_code"`
 	Error    string `json:"error,omitempty"`
 }
 

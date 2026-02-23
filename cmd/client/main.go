@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -88,11 +89,11 @@ func handleTask(client *http.Client, serverURL, apiKey, clientID string, task ap
 
 	switch task.Type {
 	case "exec":
-		output, err := runExec(task.Payload)
+		output, exitCode, err := runExec(task.Payload)
+		result.Output = output
+		result.ExitCode = exitCode
 		if err != nil {
 			result.Error = err.Error()
-		} else {
-			result.Output = output
 		}
 
 	case "resource":
@@ -110,10 +111,13 @@ func handleTask(client *http.Client, serverURL, apiKey, clientID string, task ap
 	sendResult(client, serverURL, apiKey, result)
 }
 
-func runExec(payload map[string]string) (string, error) {
+// runExec runs a shell command and returns its output, exit code, and any error.
+// The output is always populated (even on non-zero exit), the exit code reflects
+// the process exit status, and error is only set for unexpected failures.
+func runExec(payload map[string]string) (output string, exitCode int, err error) {
 	command, ok := payload["command"]
 	if !ok || command == "" {
-		return "", fmt.Errorf("'command' missing in payload")
+		return "", 1, fmt.Errorf("'command' missing in payload")
 	}
 
 	var args []string
@@ -123,11 +127,22 @@ func runExec(payload map[string]string) (string, error) {
 		args = []string{"sh", "-c", command}
 	}
 
-	out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("execution failed: %w", err)
+	out, execErr := exec.Command(args[0], args[1:]...).CombinedOutput()
+	output = string(out)
+
+	if execErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(execErr, &exitErr) {
+			// Command ran but exited with a non-zero status — this is not an
+			// unexpected failure, so we return the exit code without wrapping
+			// the error further.
+			return output, exitErr.ExitCode(), nil
+		}
+		// Unexpected failure (e.g. binary not found)
+		return output, 1, fmt.Errorf("execution failed: %w", execErr)
 	}
-	return string(out), nil
+
+	return output, 0, nil
 }
 
 func getResource(payload map[string]string) (string, error) {
@@ -171,7 +186,7 @@ func sendResult(client *http.Client, serverURL, apiKey string, result api.TaskRe
 		return
 	}
 	defer resp.Body.Close()
-	log.Printf("Task %s result sent (status: %d)", result.TaskID, resp.StatusCode)
+	log.Printf("Task %s result sent (exit_code: %d, status: %d)", result.TaskID, result.ExitCode, resp.StatusCode)
 }
 
 func getEnv(key, fallback string) string {
