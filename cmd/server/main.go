@@ -79,7 +79,7 @@ func (s *server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 
-	log.Printf("[%s] Heartbeat received (uptime: %.0fs)", req.ClientID, req.Uptime)
+	log.Printf("[%s] Heartbeat received (uptime: %.0fs, load: %.2f)", req.ClientID, req.Uptime, req.Load5)
 }
 
 // handleTaskResult handles POST /task-result

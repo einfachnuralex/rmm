@@ -49,6 +49,7 @@ func (s *Store) Upsert(req api.HeartbeatRequest) {
 	r.OS = req.OS
 	r.Arch = req.Arch
 	r.UptimeSec = req.Uptime
+	r.Load5 = req.Load5
 	r.LastContact = time.Now()
 	r.Online = true
 

@@ -45,12 +45,17 @@ func runHeartbeatLoop(client *http.Client, serverURL, apiKey, clientID, hostname
 		if err != nil {
 			log.Printf("Failed to read host uptime: %v", err)
 		}
+		load5, err := utils.HostLoad5()
+		if err != nil {
+			log.Printf("Failed to read host load: %v", err)
+		}
 		req := api.HeartbeatRequest{
 			ClientID: clientID,
 			Hostname: hostname,
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
 			Uptime:   uptime,
+			Load5:    load5,
 		}
 		if err := sendHeartbeat(client, serverURL, apiKey, req); err != nil {
 			log.Printf("Heartbeat failed: %v", err)
@@ -120,7 +125,7 @@ func sendHeartbeat(client *http.Client, serverURL, apiKey string, req api.Heartb
 	if httpResp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server responded with %d", httpResp.StatusCode)
 	}
-	log.Printf("Heartbeat sent (uptime: %.0fs)", req.Uptime)
+	log.Printf("Heartbeat sent (uptime: %.0fs, load: %.2f)", req.Uptime, req.Load5)
 	return nil
 }
 

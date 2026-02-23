@@ -9,6 +9,7 @@ type HeartbeatRequest struct {
 	OS       string  `json:"os"`
 	Arch     string  `json:"arch"`
 	Uptime   float64 `json:"uptime_seconds"`
+	Load5    float64 `json:"load5"`
 }
 
 // HeartbeatResponse optionally contains tasks for the client to execute
@@ -39,6 +40,7 @@ type ClientRecord struct {
 	OS          string    `json:"os"`
 	Arch        string    `json:"arch"`
 	UptimeSec   float64   `json:"uptime_seconds"`
+	Load5       float64   `json:"load5"`
 	LastContact time.Time `json:"last_contact"`
 	Online      bool      `json:"online"`
 }
