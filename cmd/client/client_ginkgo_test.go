@@ -110,7 +110,9 @@ var _ = Describe("Client", func() {
 				_, err := getResource(map[string]string{})
 				Expect(err).To(HaveOccurred())
 			})
+		})
 
+		Context("case-insensitivity", func() {
 			It("matches resource names case-insensitively", func() {
 				_, err := getResource(map[string]string{"name": "OS"})
 				Expect(err).NotTo(HaveOccurred())
