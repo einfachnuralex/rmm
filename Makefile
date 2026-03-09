@@ -16,3 +16,6 @@ run-server:
 
 run-client:
 	RMM_API_KEY=secretkey RMM_SERVER=http://localhost:8080 RMM_HEARTBEAT_INTERVAL=10s go run ./cmd/client
+
+test:
+	go test -v ./...

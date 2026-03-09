@@ -151,6 +151,9 @@ func (s *Store) load() error {
 	if err != nil {
 		return err
 	}
+	if len(data) == 0 {
+		return nil // empty file: nothing to load, start fresh
+	}
 	return json.Unmarshal(data, &s.clients)
 }
 
